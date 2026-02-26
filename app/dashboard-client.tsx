@@ -279,7 +279,7 @@ export default function DashboardClient() {
     void run();
   }, [token, selectedHourStartTs]);
 
-  const timezoneLabel = timezone === "UTC8" ? "UTC+8" : "Polymarket Time (UTC)";
+  const timezoneLabel = timezone === "UTC8" ? "UTC+8" : "Polymarket Time (ET)";
   const tokenMinMax = useMemo(() => {
     const values = series
       .map((item) => item.chainlink_mid_price)
@@ -420,7 +420,7 @@ export default function DashboardClient() {
                 value={timezone}
                 onChange={(e) => setTimezone(e.target.value as TimezoneOption)}
               >
-                <option value="POLYMARKET">Polymarket Time</option>
+                <option value="POLYMARKET">Polymarket Time (ET)</option>
                 <option value="UTC8">UTC+8</option>
               </select>
             </label>

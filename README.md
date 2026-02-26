@@ -9,7 +9,7 @@ Polymarket 5m crypto 场次价格查询服务（Next.js + MySQL）。
 - 同图展示两条线：
   - `up_buy_price`（Polymarket）
   - `chainlink_mid_price`（Token）
-- `timezone` 仅两项：`Polymarket Time` / `UTC+8`
+- `timezone` 仅两项：`Polymarket Time (ET)` / `UTC+8`
 
 ## 开发启动
 

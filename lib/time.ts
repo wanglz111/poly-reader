@@ -1,6 +1,7 @@
 import type { TimezoneOption } from "@/types/api";
 
 const UTC8_ZONE = "Asia/Shanghai";
+const POLYMARKET_ZONE = "America/New_York";
 
 export function parseTimezone(input: string | null): TimezoneOption {
   if (input === "UTC8") {
@@ -14,19 +15,19 @@ export function formatRangeLabel(
   endTs: number,
   timezone: TimezoneOption
 ): string {
-  const zone = timezone === "UTC8" ? UTC8_ZONE : "UTC";
+  const zone = timezone === "UTC8" ? UTC8_ZONE : POLYMARKET_ZONE;
   const start = formatTs(startTs, zone);
   const end = formatTs(endTs, zone);
   return `${start} ~ ${end.slice(-5)}`;
 }
 
 export function formatPointTs(ts: number, timezone: TimezoneOption): string {
-  const zone = timezone === "UTC8" ? UTC8_ZONE : "UTC";
+  const zone = timezone === "UTC8" ? UTC8_ZONE : POLYMARKET_ZONE;
   return formatTsFull(ts, zone);
 }
 
 export function formatDateKey(ts: number, timezone: TimezoneOption): string {
-  const zone = timezone === "UTC8" ? UTC8_ZONE : "UTC";
+  const zone = timezone === "UTC8" ? UTC8_ZONE : POLYMARKET_ZONE;
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: zone,
     year: "numeric",
@@ -40,7 +41,7 @@ export function formatDateKey(ts: number, timezone: TimezoneOption): string {
 }
 
 export function formatHourLabel(ts: number, timezone: TimezoneOption): string {
-  const zone = timezone === "UTC8" ? UTC8_ZONE : "UTC";
+  const zone = timezone === "UTC8" ? UTC8_ZONE : POLYMARKET_ZONE;
   const parts = new Intl.DateTimeFormat("en-GB", {
     timeZone: zone,
     hour: "2-digit",
