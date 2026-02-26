@@ -345,7 +345,7 @@ export default function DashboardClient() {
           {selectedMarket ? <span>Slug: {selectedMarket.market_slug}</span> : null}
           {tokenMinMax ? (
             <span>
-              Token raw range: {tokenMinMax.min.toLocaleString(undefined, { maximumFractionDigits: 6 })} ~{" "}
+              Token range: {tokenMinMax.min.toLocaleString(undefined, { maximumFractionDigits: 6 })} ~{" "}
               {tokenMinMax.max.toLocaleString(undefined, { maximumFractionDigits: 6 })}
             </span>
           ) : null}
@@ -382,7 +382,7 @@ export default function DashboardClient() {
                   tickFormatter={(v) =>
                     Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 })
                   }
-                  label={{ value: "Chainlink mid raw", angle: 90, position: "insideRight" }}
+                  label={{ value: "Chainlink mid", angle: 90, position: "insideRight" }}
                 />
                 {tokenBasePrice !== null && tokenMinMax ? (
                   <>
@@ -418,7 +418,7 @@ export default function DashboardClient() {
                   </>
                 ) : null}
                 <Tooltip
-                  formatter={(value, name, entry) => {
+                  formatter={(value, name) => {
                     const numericValue =
                       typeof value === "number" ? value : Number(value);
                     if (!Number.isFinite(numericValue)) {
@@ -427,13 +427,8 @@ export default function DashboardClient() {
                     if (name === "up_buy_price") {
                       return [numericValue.toFixed(4), "up_buy_price"];
                     }
-                    const payload = entry && typeof entry === "object" ? (entry as { payload?: SeriesRow }).payload : undefined;
-                    const raw = payload?.chainlink_mid_price;
-                    const rawLabel = raw === null || raw === undefined
-                      ? ""
-                      : ` (raw ${raw.toLocaleString(undefined, { maximumFractionDigits: 6 })})`;
                     return [
-                      `${numericValue.toLocaleString(undefined, { maximumFractionDigits: 6 })}${rawLabel}`,
+                      `${numericValue.toLocaleString(undefined, { maximumFractionDigits: 6 })}`,
                       "chainlink_mid_price"
                     ];
                   }}
