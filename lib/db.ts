@@ -73,7 +73,6 @@ export async function listHourBuckets(
   limit = 24 * 30
 ): Promise<HourBucket[]> {
   const pool = getPool();
-  const nowTs = Math.floor(Date.now() / 1000);
   const [rows] = await pool.query<RowDataPacket[]>(
     `
       SELECT
@@ -87,12 +86,11 @@ export async function listHourBuckets(
           FROM ${TABLE}
           WHERE symbol_norm = ?
         )
-        AND FLOOR(ts_unix / 3600) * 3600 + 3600 <= ?
       GROUP BY FLOOR(ts_unix / 3600)
       ORDER BY hour_start_ts DESC
       LIMIT ?
     `,
-    [token, recentHours * 3600, token, nowTs, limit]
+    [token, recentHours * 3600, token, limit]
   );
 
   return rows.map((row) => ({
