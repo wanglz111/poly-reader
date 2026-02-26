@@ -3,6 +3,14 @@ import mysql, { Pool, RowDataPacket } from "mysql2/promise";
 import type { MarketOption, PricePoint } from "@/types/api";
 
 const TABLE = "v_chainlink_polymarket_join";
+const CHAINLINK_MID_PRICE_SQL = `
+  CASE
+    WHEN chainlink_price REGEXP '^[0-9]+$' THEN
+      CAST(chainlink_price AS DECIMAL(65, 18)) / POW(10, chainlink_price_unit_scale)
+    ELSE
+      CAST(chainlink_price AS DECIMAL(65, 18))
+  END
+`;
 
 declare global {
   // eslint-disable-next-line no-var
@@ -108,8 +116,7 @@ export async function getPriceSeries(token: string, marketSlug: string): Promise
       SELECT
         ts_unix,
         up_buy_price,
-        CAST(chainlink_price AS DECIMAL(65, 18)) / POW(10, chainlink_price_unit_scale)
-          AS chainlink_mid_price
+        ${CHAINLINK_MID_PRICE_SQL} AS chainlink_mid_price
       FROM ${TABLE}
       WHERE symbol_norm = ?
         AND market_slug = ?
@@ -137,8 +144,7 @@ export async function getPriceSeriesByWindow(
       SELECT
         ts_unix,
         up_buy_price,
-        CAST(chainlink_price AS DECIMAL(65, 18)) / POW(10, chainlink_price_unit_scale)
-          AS chainlink_mid_price
+        ${CHAINLINK_MID_PRICE_SQL} AS chainlink_mid_price
       FROM ${TABLE}
       WHERE symbol_norm = ?
         AND market_start_ts = ?
