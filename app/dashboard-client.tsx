@@ -25,6 +25,39 @@ type SeriesRow = {
   chainlink_mid_price: number | null;
 };
 
+function isSameHourBuckets(a: HourBucket[], b: HourBucket[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].hour_start_ts !== b[i].hour_start_ts ||
+      a[i].hour_end_ts !== b[i].hour_end_ts ||
+      a[i].points !== b[i].points
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function isSameMarketOptions(a: MarketOption[], b: MarketOption[]): boolean {
+  if (a.length !== b.length) {
+    return false;
+  }
+  for (let i = 0; i < a.length; i += 1) {
+    if (
+      a[i].market_slug !== b[i].market_slug ||
+      a[i].market_start_ts !== b[i].market_start_ts ||
+      a[i].market_end_ts !== b[i].market_end_ts ||
+      a[i].points !== b[i].points
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 export default function DashboardClient() {
   const storageKey = "poly-reader.dashboard.v1";
   const refreshMs = 15000;
@@ -164,7 +197,7 @@ export default function DashboardClient() {
         if (reqId !== marketsReqSeq.current) {
           return;
         }
-        setHourBuckets(data);
+        setHourBuckets((prev) => (isSameHourBuckets(prev, data) ? prev : data));
       } catch (e) {
         if (reqId !== marketsReqSeq.current) {
           return;
@@ -263,7 +296,9 @@ export default function DashboardClient() {
         if (reqId !== marketOptionsReqSeq.current) {
           return;
         }
-        setMarketOptions(data);
+        setMarketOptions((prevOptions) =>
+          isSameMarketOptions(prevOptions, data) ? prevOptions : data
+        );
         setSelectedMarketSlug((prev) => {
           if (data.length === 0) {
             return "";
@@ -339,7 +374,6 @@ export default function DashboardClient() {
     try {
       setLoading(true);
       setError("");
-      setSeries([]);
       const qs = new URLSearchParams({ token, timezone });
       qs.set("market_slug", selectedMarket.market_slug);
       qs.set("market_start_ts", String(selectedMarket.market_start_ts));
@@ -382,7 +416,7 @@ export default function DashboardClient() {
     }
     void loadSeries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedMarket, token, timezone]);
+  }, [selectedMarketSlug, token, timezone]);
 
   useEffect(() => {
     const qs = new URLSearchParams(searchParams.toString());
