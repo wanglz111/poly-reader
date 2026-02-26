@@ -15,8 +15,8 @@ import {
   YAxis
 } from "recharts";
 
-import { formatPointTs } from "@/lib/time";
-import type { MarketOption, PriceSeriesResponse, TimezoneOption } from "@/types/api";
+import { formatDateKey, formatHourLabel, formatPointTs, formatRangeLabel } from "@/lib/time";
+import type { HourBucket, MarketOption, PriceSeriesResponse, TimezoneOption } from "@/types/api";
 
 type SeriesRow = {
   ts: number;
@@ -33,27 +33,42 @@ export default function DashboardClient() {
   const [tokens, setTokens] = useState<string[]>([]);
   const [token, setToken] = useState<string>("");
   const [timezone, setTimezone] = useState<TimezoneOption>("POLYMARKET");
-  const [markets, setMarkets] = useState<MarketOption[]>([]);
-  const [marketSlug, setMarketSlug] = useState<string>("");
+  const [hourBuckets, setHourBuckets] = useState<HourBucket[]>([]);
+  const [selectedDate, setSelectedDate] = useState<string>("");
+  const [selectedHourStartTs, setSelectedHourStartTs] = useState<number | null>(null);
+  const [marketOptions, setMarketOptions] = useState<MarketOption[]>([]);
+  const [selectedMarketSlug, setSelectedMarketSlug] = useState<string>("");
   const [series, setSeries] = useState<SeriesRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
   const marketsReqSeq = useRef(0);
+  const marketOptionsReqSeq = useRef(0);
   const seriesReqSeq = useRef(0);
   const [chartVersion, setChartVersion] = useState(0);
 
   useEffect(() => {
     const tokenFromUrl = searchParams.get("token");
     const timezoneFromUrl = searchParams.get("timezone");
-    const marketFromUrl = searchParams.get("market_slug");
+    const dateFromUrl = searchParams.get("date");
+    const hourStartFromUrl = searchParams.get("hour_start_ts");
+    const marketSlugFromUrl = searchParams.get("market_slug");
     if (timezoneFromUrl === "UTC8" || timezoneFromUrl === "POLYMARKET") {
       setTimezone(timezoneFromUrl);
     }
     if (tokenFromUrl && /^[a-z0-9_-]{2,16}$/.test(tokenFromUrl)) {
       setToken(tokenFromUrl);
     }
-    if (marketFromUrl && /^[a-z0-9-]{6,160}$/.test(marketFromUrl)) {
-      setMarketSlug(marketFromUrl);
+    if (dateFromUrl && /^\d{4}-\d{2}-\d{2}$/.test(dateFromUrl)) {
+      setSelectedDate(dateFromUrl);
+    }
+    if (hourStartFromUrl) {
+      const parsed = Number(hourStartFromUrl);
+      if (Number.isInteger(parsed) && parsed > 0) {
+        setSelectedHourStartTs(parsed);
+      }
+    }
+    if (marketSlugFromUrl && /^[a-z0-9-]{6,160}$/.test(marketSlugFromUrl)) {
+      setSelectedMarketSlug(marketSlugFromUrl);
     }
     // only initialize from URL once per mount
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -68,12 +83,27 @@ export default function DashboardClient() {
       const parsed = JSON.parse(raw) as {
         token?: string;
         timezone?: TimezoneOption;
+        selectedDate?: string;
+        selectedHourStartTs?: number;
+        selectedMarketSlug?: string;
       };
       if (parsed.timezone === "UTC8" || parsed.timezone === "POLYMARKET") {
         setTimezone(parsed.timezone);
       }
       if (parsed.token && /^[a-z0-9_-]{2,16}$/.test(parsed.token)) {
         setToken(parsed.token);
+      }
+      if (parsed.selectedDate && /^\d{4}-\d{2}-\d{2}$/.test(parsed.selectedDate)) {
+        setSelectedDate(parsed.selectedDate);
+      }
+      if (
+        Number.isInteger(parsed.selectedHourStartTs) &&
+        Number(parsed.selectedHourStartTs) > 0
+      ) {
+        setSelectedHourStartTs(Number(parsed.selectedHourStartTs));
+      }
+      if (parsed.selectedMarketSlug && /^[a-z0-9-]{6,160}$/.test(parsed.selectedMarketSlug)) {
+        setSelectedMarketSlug(parsed.selectedMarketSlug);
       }
     } catch {
       // ignore invalid cache
@@ -122,67 +152,133 @@ export default function DashboardClient() {
         setError("");
         const qs = new URLSearchParams({
           token,
-          timezone,
-          recent_hours: "72",
-          limit: "240"
+          recent_hours: String(24 * 30),
+          limit: String(24 * 60)
+        });
+        const res = await fetch(`/api/markets?${qs.toString()}`, { cache: "no-store" });
+        if (!res.ok) {
+          throw new Error("加载日期小时失败");
+        }
+        const data = (await res.json()) as HourBucket[];
+        if (reqId !== marketsReqSeq.current) {
+          return;
+        }
+        setHourBuckets(data);
+      } catch (e) {
+        if (reqId !== marketsReqSeq.current) {
+          return;
+        }
+        const message = e instanceof Error ? e.message : "加载日期小时失败";
+        setError(message);
+      }
+    };
+
+    void run();
+  }, [token]);
+
+  const dateOptions = useMemo(() => {
+    const seen = new Set<string>();
+    const dates: string[] = [];
+    for (const bucket of hourBuckets) {
+      const key = formatDateKey(bucket.hour_start_ts, timezone);
+      if (seen.has(key)) {
+        continue;
+      }
+      seen.add(key);
+      dates.push(key);
+    }
+    return dates;
+  }, [hourBuckets, timezone]);
+
+  const hourOptions = useMemo(
+    () =>
+      hourBuckets.filter(
+        (bucket) => formatDateKey(bucket.hour_start_ts, timezone) === selectedDate
+      ),
+    [hourBuckets, selectedDate, timezone]
+  );
+  const selectedHourBucket = useMemo(
+    () => hourOptions.find((bucket) => bucket.hour_start_ts === selectedHourStartTs) ?? null,
+    [hourOptions, selectedHourStartTs]
+  );
+  const selectedMarket = useMemo(
+    () => marketOptions.find((item) => item.market_slug === selectedMarketSlug) ?? null,
+    [marketOptions, selectedMarketSlug]
+  );
+
+  useEffect(() => {
+    if (dateOptions.length === 0) {
+      setSelectedDate("");
+      return;
+    }
+    if (!selectedDate || !dateOptions.includes(selectedDate)) {
+      setSelectedDate(dateOptions[0]);
+    }
+  }, [dateOptions, selectedDate]);
+
+  useEffect(() => {
+    if (!selectedDate) {
+      setSelectedHourStartTs(null);
+      return;
+    }
+    if (hourOptions.length === 0) {
+      setSelectedHourStartTs(null);
+      return;
+    }
+    if (
+      selectedHourStartTs !== null &&
+      hourOptions.some((bucket) => bucket.hour_start_ts === selectedHourStartTs)
+    ) {
+      return;
+    }
+    setSelectedHourStartTs(hourOptions[0].hour_start_ts);
+  }, [hourOptions, selectedDate, selectedHourStartTs]);
+
+  useEffect(() => {
+    if (!token || selectedHourStartTs === null) {
+      setMarketOptions([]);
+      setSelectedMarketSlug("");
+      return;
+    }
+
+    const run = async () => {
+      const reqId = ++marketOptionsReqSeq.current;
+      try {
+        setError("");
+        const qs = new URLSearchParams({
+          token,
+          hour_start_ts: String(selectedHourStartTs),
+          limit: "80"
         });
         const res = await fetch(`/api/markets?${qs.toString()}`, { cache: "no-store" });
         if (!res.ok) {
           throw new Error("加载场次失败");
         }
         const data = (await res.json()) as MarketOption[];
-        if (reqId !== marketsReqSeq.current) {
+        if (reqId !== marketOptionsReqSeq.current) {
           return;
         }
-        setMarkets(data);
-        setMarketSlug((prev) => {
+        setMarketOptions(data);
+        setSelectedMarketSlug((prev) => {
           if (prev && data.some((m) => m.market_slug === prev)) {
             return prev;
-          }
-          try {
-            const raw = localStorage.getItem(storageKey);
-            if (raw) {
-              const parsed = JSON.parse(raw) as { marketSlug?: string };
-              if (parsed.marketSlug && data.some((m) => m.market_slug === parsed.marketSlug)) {
-                return parsed.marketSlug;
-              }
-            }
-          } catch {
-            // ignore
           }
           return data[0]?.market_slug ?? "";
         });
       } catch (e) {
-        if (reqId !== marketsReqSeq.current) {
+        if (reqId !== marketOptionsReqSeq.current) {
           return;
         }
+        setMarketOptions([]);
+        setSelectedMarketSlug("");
         const message = e instanceof Error ? e.message : "加载场次失败";
         setError(message);
       }
     };
 
     void run();
-  }, [token, timezone]);
+  }, [token, selectedHourStartTs]);
 
-  const selectedMarket = useMemo(
-    () => markets.find((item) => item.market_slug === marketSlug),
-    [markets, marketSlug]
-  );
-  const marketOptions = useMemo(() => {
-    if (!marketSlug || markets.some((item) => item.market_slug === marketSlug)) {
-      return markets;
-    }
-    return [
-      {
-        market_slug: marketSlug,
-        market_start_ts: 0,
-        market_end_ts: 0,
-        label: `${marketSlug} (当前已选)`,
-        points: 0
-      },
-      ...markets
-    ];
-  }, [marketSlug, markets]);
   const timezoneLabel = timezone === "UTC8" ? "UTC+8" : "Polymarket Time (UTC)";
   const tokenMinMax = useMemo(() => {
     const values = series
@@ -210,13 +306,15 @@ export default function DashboardClient() {
       JSON.stringify({
         token,
         timezone,
-        marketSlug
+        selectedDate,
+        selectedHourStartTs,
+        selectedMarketSlug
       })
     );
-  }, [token, timezone, marketSlug]);
+  }, [token, timezone, selectedDate, selectedHourStartTs, selectedMarketSlug]);
 
   const loadSeries = async () => {
-    if (!token || !marketSlug) {
+    if (!token || !selectedMarket) {
       return;
     }
 
@@ -225,14 +323,10 @@ export default function DashboardClient() {
       setLoading(true);
       setError("");
       setSeries([]);
-      const selected = markets.find((item) => item.market_slug === marketSlug);
-      if (!selected) {
-        return;
-      }
       const qs = new URLSearchParams({ token, timezone });
-      qs.set("market_start_ts", String(selected.market_start_ts));
-      qs.set("market_end_ts", String(selected.market_end_ts));
-      qs.set("market_slug", marketSlug);
+      qs.set("market_slug", selectedMarket.market_slug);
+      qs.set("market_start_ts", String(selectedMarket.market_start_ts));
+      qs.set("market_end_ts", String(selectedMarket.market_end_ts));
       const res = await fetch(`/api/price-series?${qs.toString()}`, {
         cache: "no-store"
       });
@@ -266,15 +360,12 @@ export default function DashboardClient() {
   };
 
   useEffect(() => {
-    if (!marketSlug || !token) {
-      return;
-    }
-    if (!selectedMarket) {
+    if (!selectedMarket || !token) {
       return;
     }
     void loadSeries();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [marketSlug, token, timezone, selectedMarket]);
+  }, [selectedMarket, token, timezone]);
 
   useEffect(() => {
     const qs = new URLSearchParams(searchParams.toString());
@@ -282,8 +373,18 @@ export default function DashboardClient() {
       qs.set("token", token);
     }
     qs.set("timezone", timezone);
-    if (marketSlug && selectedMarket) {
-      qs.set("market_slug", marketSlug);
+    if (selectedDate) {
+      qs.set("date", selectedDate);
+    } else {
+      qs.delete("date");
+    }
+    if (selectedHourStartTs !== null) {
+      qs.set("hour_start_ts", String(selectedHourStartTs));
+    } else {
+      qs.delete("hour_start_ts");
+    }
+    if (selectedMarketSlug) {
+      qs.set("market_slug", selectedMarketSlug);
     } else {
       qs.delete("market_slug");
     }
@@ -292,7 +393,7 @@ export default function DashboardClient() {
     if (current !== next) {
       router.replace(`${pathname}?${next}`, { scroll: false });
     }
-  }, [marketSlug, pathname, router, searchParams, timezone, token]);
+  }, [pathname, router, searchParams, selectedDate, selectedHourStartTs, selectedMarketSlug, timezone, token]);
 
   return (
     <main className="page">
@@ -301,48 +402,84 @@ export default function DashboardClient() {
         <p>同场次查看 bet price 与 chainlink mid price。</p>
 
         <div className="filters">
-          <label>
-            Token
-            <select value={token} onChange={(e) => setToken(e.target.value)}>
-              {tokens.map((item) => (
-                <option key={item} value={item}>
-                  {item.toUpperCase()}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="filter-row filter-row-main">
+            <label>
+              Token
+              <select value={token} onChange={(e) => setToken(e.target.value)}>
+                {tokens.map((item) => (
+                  <option key={item} value={item}>
+                    {item.toUpperCase()}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <label>
-            Timezone
-            <select
-              value={timezone}
-              onChange={(e) => setTimezone(e.target.value as TimezoneOption)}
-            >
-              <option value="POLYMARKET">Polymarket Time</option>
-              <option value="UTC8">UTC+8</option>
-            </select>
-          </label>
+            <label>
+              Timezone
+              <select
+                value={timezone}
+                onChange={(e) => setTimezone(e.target.value as TimezoneOption)}
+              >
+                <option value="POLYMARKET">Polymarket Time</option>
+                <option value="UTC8">UTC+8</option>
+              </select>
+            </label>
+          </div>
 
-          <label>
-            场次
-            <select value={marketSlug} onChange={(e) => setMarketSlug(e.target.value)}>
-              {marketOptions.map((item) => (
-                <option key={item.market_slug} value={item.market_slug}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+          <div className="filter-row filter-row-market">
+            <label>
+              日期
+              <select value={selectedDate} onChange={(e) => setSelectedDate(e.target.value)}>
+                {dateOptions.map((item) => (
+                  <option key={item} value={item}>
+                    {item}
+                  </option>
+                ))}
+              </select>
+            </label>
 
-          <button onClick={loadSeries} disabled={loading || !marketSlug || !token}>
-            {loading ? "查询中..." : "查询"}
-          </button>
+            <label>
+              小时
+              <select
+                value={selectedHourStartTs ?? ""}
+                onChange={(e) => setSelectedHourStartTs(Number(e.target.value))}
+              >
+                {hourOptions.map((item) => (
+                  <option key={item.hour_start_ts} value={item.hour_start_ts}>
+                    {formatHourLabel(item.hour_start_ts, timezone)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <label>
+              场次
+              <select
+                value={selectedMarketSlug}
+                onChange={(e) => setSelectedMarketSlug(e.target.value)}
+              >
+                {marketOptions.map((item) => (
+                  <option key={item.market_slug} value={item.market_slug}>
+                    {formatRangeLabel(item.market_start_ts, item.market_end_ts, timezone)}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            <button onClick={loadSeries} disabled={loading || !selectedMarket || !token}>
+              {loading ? "查询中..." : "查询"}
+            </button>
+          </div>
         </div>
 
         <div className="meta" suppressHydrationWarning>
           <span>Timezone: {timezoneLabel}</span>
           <span>样本点: {series.length}</span>
-          {selectedMarket ? <span>Slug: {selectedMarket.market_slug}</span> : null}
+          {selectedDate ? <span>日期: {selectedDate}</span> : null}
+          {selectedHourBucket ? (
+            <span>小时: {formatHourLabel(selectedHourBucket.hour_start_ts, timezone)}</span>
+          ) : null}
+          {selectedMarket ? <span>场次: {selectedMarket.market_slug}</span> : null}
           {tokenMinMax ? (
             <span>
               Token range: {tokenMinMax.min.toLocaleString(undefined, { maximumFractionDigits: 6 })} ~{" "}
@@ -358,12 +495,12 @@ export default function DashboardClient() {
             <div className="empty">当前场次暂无数据</div>
           ) : (
             <ResponsiveContainer
-              key={`${token}-${timezone}-${marketSlug}-${chartVersion}`}
+              key={`${token}-${timezone}-${selectedMarketSlug || "none"}-${chartVersion}`}
               width="100%"
               height={460}
             >
               <LineChart
-                key={`${token}-${timezone}-${marketSlug}-${chartVersion}`}
+                key={`${token}-${timezone}-${selectedMarketSlug || "none"}-${chartVersion}`}
                 data={series}
                 margin={{ top: 10, right: 30, left: 20, bottom: 20 }}
               >

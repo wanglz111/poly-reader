@@ -1,10 +1,15 @@
 export type TimezoneOption = "POLYMARKET" | "UTC8";
 
+export type HourBucket = {
+  hour_start_ts: number;
+  hour_end_ts: number;
+  points: number;
+};
+
 export type MarketOption = {
   market_slug: string;
   market_start_ts: number;
   market_end_ts: number;
-  label: string;
   points: number;
 };
 

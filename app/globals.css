@@ -48,11 +48,24 @@ p {
 }
 
 .filters {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  display: flex;
+  flex-direction: column;
   gap: 12px;
   margin-top: 16px;
+}
+
+.filter-row {
+  display: grid;
+  gap: 12px;
   align-items: end;
+}
+
+.filter-row-main {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.filter-row-market {
+  grid-template-columns: 1fr 1fr 1.6fr auto;
 }
 
 label {
@@ -114,7 +127,8 @@ button:disabled {
 }
 
 @media (max-width: 900px) {
-  .filters {
+  .filter-row-main,
+  .filter-row-market {
     grid-template-columns: 1fr;
   }
 

@@ -1,6 +1,6 @@
 import mysql, { Pool, RowDataPacket } from "mysql2/promise";
 
-import type { MarketOption, PricePoint } from "@/types/api";
+import type { HourBucket, MarketOption, PricePoint } from "@/types/api";
 
 const TABLE = "v_chainlink_polymarket_join";
 const CHAINLINK_MID_PRICE_SQL = `
@@ -67,15 +67,48 @@ export async function listTokens(): Promise<string[]> {
   return rows.map((row) => String(row.symbol_norm));
 }
 
-export async function listMarkets(
+export async function listHourBuckets(
   token: string,
-  recentHours = 12,
-  limit = 200,
-  onlyClosed = true
+  recentHours = 24 * 14,
+  limit = 24 * 30
+): Promise<HourBucket[]> {
+  const pool = getPool();
+  const nowTs = Math.floor(Date.now() / 1000);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `
+      SELECT
+        FLOOR(ts_unix / 3600) * 3600 AS hour_start_ts,
+        FLOOR(ts_unix / 3600) * 3600 + 3600 AS hour_end_ts,
+        COUNT(*) AS points
+      FROM ${TABLE}
+      WHERE symbol_norm = ?
+        AND ts_unix >= (
+          SELECT GREATEST(0, MAX(ts_unix) - ?)
+          FROM ${TABLE}
+          WHERE symbol_norm = ?
+        )
+        AND FLOOR(ts_unix / 3600) * 3600 + 3600 <= ?
+      GROUP BY FLOOR(ts_unix / 3600)
+      ORDER BY hour_start_ts DESC
+      LIMIT ?
+    `,
+    [token, recentHours * 3600, token, nowTs, limit]
+  );
+
+  return rows.map((row) => ({
+    hour_start_ts: Number(row.hour_start_ts),
+    hour_end_ts: Number(row.hour_end_ts),
+    points: Number(row.points)
+  }));
+}
+
+export async function listMarketsByHour(
+  token: string,
+  hourStartTs: number,
+  limit = 40
 ): Promise<MarketOption[]> {
   const pool = getPool();
   const nowTs = Math.floor(Date.now() / 1000);
-  const closedFilter = onlyClosed ? "AND market_end_ts <= ?" : "";
   const [rows] = await pool.query<RowDataPacket[]>(
     `
       SELECT
@@ -85,26 +118,20 @@ export async function listMarkets(
         COUNT(*) AS points
       FROM ${TABLE}
       WHERE symbol_norm = ?
-        AND ts_unix >= (
-          SELECT GREATEST(0, MAX(ts_unix) - ?)
-          FROM ${TABLE}
-          WHERE symbol_norm = ?
-        )
-        ${closedFilter}
+        AND market_start_ts >= ?
+        AND market_start_ts < ?
+        AND market_end_ts <= ?
       GROUP BY market_slug, market_start_ts, market_end_ts
       ORDER BY market_start_ts DESC
       LIMIT ?
     `,
-    onlyClosed
-      ? [token, recentHours * 3600, token, nowTs, limit]
-      : [token, recentHours * 3600, token, limit]
+    [token, hourStartTs, hourStartTs + 3600, nowTs, limit]
   );
 
   return rows.map((row) => ({
     market_slug: String(row.market_slug),
     market_start_ts: Number(row.market_start_ts),
     market_end_ts: Number(row.market_end_ts),
-    label: "",
     points: Number(row.points)
   }));
 }
@@ -152,6 +179,32 @@ export async function getPriceSeriesByWindow(
       ORDER BY ts_unix ASC
     `,
     [token, marketStartTs, marketEndTs]
+  );
+
+  return rows.map((row) => ({
+    ts: Number(row.ts_unix),
+    up_buy_price: row.up_buy_price === null ? null : Number(row.up_buy_price),
+    chainlink_mid_price:
+      row.chainlink_mid_price === null ? null : Number(row.chainlink_mid_price)
+  }));
+}
+
+export async function getPriceSeriesByHour(token: string, hourStartTs: number): Promise<PricePoint[]> {
+  const pool = getPool();
+  const hourEndTs = hourStartTs + 3600;
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `
+      SELECT
+        ts_unix,
+        up_buy_price,
+        ${CHAINLINK_MID_PRICE_SQL} AS chainlink_mid_price
+      FROM ${TABLE}
+      WHERE symbol_norm = ?
+        AND ts_unix >= ?
+        AND ts_unix < ?
+      ORDER BY ts_unix ASC
+    `,
+    [token, hourStartTs, hourEndTs]
   );
 
   return rows.map((row) => ({
