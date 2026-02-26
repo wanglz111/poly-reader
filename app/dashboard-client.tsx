@@ -78,6 +78,7 @@ export default function DashboardClient() {
   const marketsReqSeq = useRef(0);
   const marketOptionsReqSeq = useRef(0);
   const seriesReqSeq = useRef(0);
+  const lastLatestMarketSlugRef = useRef("");
   const [chartVersion, setChartVersion] = useState(0);
 
   useEffect(() => {
@@ -304,15 +305,25 @@ export default function DashboardClient() {
             return "";
           }
           const latestHourStartTs = hourBuckets[0]?.hour_start_ts ?? null;
-          // If user is on the newest hour, always follow newest closed 5m market.
-          if (latestHourStartTs !== null && selectedHourStartTs === latestHourStartTs) {
-            return data[0].market_slug;
+          const latestSlug = data[0].market_slug;
+          const exists = prev && data.some((m) => m.market_slug === prev);
+          if (!exists) {
+            return latestSlug;
           }
-          if (prev && data.some((m) => m.market_slug === prev)) {
+          // Only auto-follow when user was already on the latest market.
+          if (
+            latestHourStartTs !== null &&
+            selectedHourStartTs === latestHourStartTs &&
+            prev === lastLatestMarketSlugRef.current
+          ) {
+            return latestSlug;
+          }
+          if (prev) {
             return prev;
           }
-          return data[0].market_slug;
+          return latestSlug;
         });
+        lastLatestMarketSlugRef.current = data[0].market_slug;
       } catch (e) {
         if (reqId !== marketOptionsReqSeq.current) {
           return;
