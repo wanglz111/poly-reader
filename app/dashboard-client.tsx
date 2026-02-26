@@ -27,6 +27,7 @@ type SeriesRow = {
 
 export default function DashboardClient() {
   const storageKey = "poly-reader.dashboard.v1";
+  const refreshMs = 15000;
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
@@ -174,7 +175,11 @@ export default function DashboardClient() {
     };
 
     void run();
-  }, [token]);
+    const timer = setInterval(() => {
+      void run();
+    }, refreshMs);
+    return () => clearInterval(timer);
+  }, [token, refreshMs]);
 
   const dateOptions = useMemo(() => {
     const seen = new Set<string>();
@@ -260,10 +265,18 @@ export default function DashboardClient() {
         }
         setMarketOptions(data);
         setSelectedMarketSlug((prev) => {
+          if (data.length === 0) {
+            return "";
+          }
+          const latestHourStartTs = hourBuckets[0]?.hour_start_ts ?? null;
+          // If user is on the newest hour, always follow newest closed 5m market.
+          if (latestHourStartTs !== null && selectedHourStartTs === latestHourStartTs) {
+            return data[0].market_slug;
+          }
           if (prev && data.some((m) => m.market_slug === prev)) {
             return prev;
           }
-          return data[0]?.market_slug ?? "";
+          return data[0].market_slug;
         });
       } catch (e) {
         if (reqId !== marketOptionsReqSeq.current) {
@@ -277,7 +290,11 @@ export default function DashboardClient() {
     };
 
     void run();
-  }, [token, selectedHourStartTs]);
+    const timer = setInterval(() => {
+      void run();
+    }, refreshMs);
+    return () => clearInterval(timer);
+  }, [token, selectedHourStartTs, hourBuckets, refreshMs]);
 
   const timezoneLabel = timezone === "UTC8" ? "UTC+8" : "Polymarket Time (ET)";
   const tokenMinMax = useMemo(() => {
