@@ -11,6 +11,7 @@ export async function GET(req: NextRequest) {
   try {
     const token = requireToken(req.nextUrl.searchParams.get("token"));
     const hourStartTs = parseUnixTs(req.nextUrl.searchParams.get("hour_start_ts"), "hour_start_ts");
+    const nowTs = Math.floor(Date.now() / 1000);
     const recentHoursRaw = req.nextUrl.searchParams.get("recent_hours");
     const limitRaw = req.nextUrl.searchParams.get("limit");
     if (hourStartTs !== null) {
@@ -18,22 +19,27 @@ export async function GET(req: NextRequest) {
       if (!Number.isFinite(marketLimit)) {
         return NextResponse.json({ error: "invalid limit" }, { status: 400 });
       }
+      const hourEndTs = hourStartTs + 3600;
+      const isClosedHour = hourEndTs <= nowTs;
+      const ttlSeconds = isClosedHour ? 86400 * 14 : 15;
       const cacheKey = `poly-reader:markets:v3:hour:${token}:${hourStartTs}:${marketLimit}`;
       const cached = await cacheGetJson<MarketOption[]>(cacheKey);
       if (cached) {
         return NextResponse.json(cached, {
           headers: {
             "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
-            "X-Cache": "HIT"
+            "X-Cache": "HIT",
+            "X-Cache-TTL": String(ttlSeconds)
           }
         });
       }
       const markets = await listMarketsByHour(token, hourStartTs, marketLimit);
-      await cacheSetJson(cacheKey, markets, 20);
+      await cacheSetJson(cacheKey, markets, ttlSeconds);
       return NextResponse.json(markets, {
         headers: {
           "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
-          "X-Cache": "MISS"
+          "X-Cache": "MISS",
+          "X-Cache-TTL": String(ttlSeconds)
         }
       });
     } else {
@@ -56,7 +62,7 @@ export async function GET(req: NextRequest) {
       }
 
       const hourBuckets = await listHourBuckets(token, recentHours, limit);
-      await cacheSetJson(cacheKey, hourBuckets, 20);
+      await cacheSetJson(cacheKey, hourBuckets, 15);
       return NextResponse.json(hourBuckets, {
         headers: {
           "Cache-Control": "public, s-maxage=10, stale-while-revalidate=30",
