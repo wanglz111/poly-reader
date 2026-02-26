@@ -2,7 +2,7 @@ import mysql, { Pool, RowDataPacket } from "mysql2/promise";
 
 import type { MarketOption, PricePoint } from "@/types/api";
 
-const TABLE = "price_snapshots_1s";
+const TABLE = "v_chainlink_polymarket_join";
 
 declare global {
   // eslint-disable-next-line no-var
@@ -54,9 +54,9 @@ function getPool(): Pool {
 export async function listTokens(): Promise<string[]> {
   const pool = getPool();
   const [rows] = await pool.query<RowDataPacket[]>(
-    `SELECT DISTINCT base_symbol FROM ${TABLE} ORDER BY base_symbol`
+    `SELECT DISTINCT symbol_norm FROM ${TABLE} ORDER BY symbol_norm`
   );
-  return rows.map((row) => String(row.base_symbol));
+  return rows.map((row) => String(row.symbol_norm));
 }
 
 export async function listMarkets(
@@ -76,11 +76,11 @@ export async function listMarkets(
         market_end_ts,
         COUNT(*) AS points
       FROM ${TABLE}
-      WHERE base_symbol = ?
-        AND captured_at_ts >= (
-          SELECT GREATEST(0, MAX(captured_at_ts) - ?)
+      WHERE symbol_norm = ?
+        AND ts_unix >= (
+          SELECT GREATEST(0, MAX(ts_unix) - ?)
           FROM ${TABLE}
-          WHERE base_symbol = ?
+          WHERE symbol_norm = ?
         )
         ${closedFilter}
       GROUP BY market_slug, market_start_ts, market_end_ts
@@ -106,19 +106,20 @@ export async function getPriceSeries(token: string, marketSlug: string): Promise
   const [rows] = await pool.query<RowDataPacket[]>(
     `
       SELECT
-        captured_at_ts,
+        ts_unix,
         up_buy_price,
-        chainlink_mid_price
+        CAST(chainlink_price AS DECIMAL(65, 18)) / POW(10, chainlink_price_unit_scale)
+          AS chainlink_mid_price
       FROM ${TABLE}
-      WHERE base_symbol = ?
+      WHERE symbol_norm = ?
         AND market_slug = ?
-      ORDER BY captured_at_ts ASC
+      ORDER BY ts_unix ASC
     `,
     [token, marketSlug]
   );
 
   return rows.map((row) => ({
-    ts: Number(row.captured_at_ts),
+    ts: Number(row.ts_unix),
     up_buy_price: row.up_buy_price === null ? null : Number(row.up_buy_price),
     chainlink_mid_price:
       row.chainlink_mid_price === null ? null : Number(row.chainlink_mid_price)
@@ -134,20 +135,21 @@ export async function getPriceSeriesByWindow(
   const [rows] = await pool.query<RowDataPacket[]>(
     `
       SELECT
-        captured_at_ts,
+        ts_unix,
         up_buy_price,
-        chainlink_mid_price
+        CAST(chainlink_price AS DECIMAL(65, 18)) / POW(10, chainlink_price_unit_scale)
+          AS chainlink_mid_price
       FROM ${TABLE}
-      WHERE base_symbol = ?
+      WHERE symbol_norm = ?
         AND market_start_ts = ?
         AND market_end_ts = ?
-      ORDER BY captured_at_ts ASC
+      ORDER BY ts_unix ASC
     `,
     [token, marketStartTs, marketEndTs]
   );
 
   return rows.map((row) => ({
-    ts: Number(row.captured_at_ts),
+    ts: Number(row.ts_unix),
     up_buy_price: row.up_buy_price === null ? null : Number(row.up_buy_price),
     chainlink_mid_price:
       row.chainlink_mid_price === null ? null : Number(row.chainlink_mid_price)
@@ -163,9 +165,9 @@ export async function getMarketWindow(token: string, marketSlug: string): Promis
     `
       SELECT market_start_ts, market_end_ts
       FROM ${TABLE}
-      WHERE base_symbol = ?
+      WHERE symbol_norm = ?
         AND market_slug = ?
-      ORDER BY captured_at_ts DESC
+      ORDER BY ts_unix DESC
       LIMIT 1
     `,
     [token, marketSlug]
@@ -191,10 +193,10 @@ export async function getMarketSlugByWindow(
     `
       SELECT market_slug
       FROM ${TABLE}
-      WHERE base_symbol = ?
+      WHERE symbol_norm = ?
         AND market_start_ts = ?
         AND market_end_ts = ?
-      ORDER BY captured_at_ts DESC
+      ORDER BY ts_unix DESC
       LIMIT 1
     `,
     [token, marketStartTs, marketEndTs]

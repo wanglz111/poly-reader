@@ -45,5 +45,5 @@ ipconfig getifaddr en0
 
 ## 说明
 
-- 表名固定：`price_snapshots_1s`
+- 表名固定：`v_chainlink_polymarket_join`
 - 使用 MySQL 连接池单例，适配 Vercel Serverless 场景
