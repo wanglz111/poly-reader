@@ -58,14 +58,16 @@ export async function GET(req: NextRequest) {
           { status: 400 }
         );
       }
-      [series, marketSlug] = await Promise.all([
+      const [seriesResult, marketSlugMaybe] = await Promise.all([
         getPriceSeriesByWindow(token, marketStartTs, marketEndTs),
         getMarketSlugByWindow(token, marketStartTs, marketEndTs)
       ]);
+      series = seriesResult;
       marketWindow = { market_start_ts: marketStartTs, market_end_ts: marketEndTs };
-      if (!marketSlug) {
+      if (!marketSlugMaybe) {
         return NextResponse.json({ error: "market not found" }, { status: 404 });
       }
+      marketSlug = marketSlugMaybe;
     }
 
     if (!marketWindow) {

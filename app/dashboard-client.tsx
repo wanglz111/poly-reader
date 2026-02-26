@@ -418,20 +418,22 @@ export default function DashboardClient() {
                   </>
                 ) : null}
                 <Tooltip
-                  formatter={(value: number | null, name: string, entry: { payload?: SeriesRow }) => {
-                    if (value === null) {
+                  formatter={(value, name, entry) => {
+                    const numericValue =
+                      typeof value === "number" ? value : Number(value);
+                    if (!Number.isFinite(numericValue)) {
                       return ["null", name];
                     }
                     if (name === "up_buy_price") {
-                      return [value.toFixed(4), "up_buy_price"];
+                      return [numericValue.toFixed(4), "up_buy_price"];
                     }
-                    const raw = entry?.payload?.chainlink_mid_price;
-                    const rawLabel =
-                      raw === null || raw === undefined
-                        ? ""
-                        : ` (raw ${raw.toLocaleString(undefined, { maximumFractionDigits: 6 })})`;
+                    const payload = entry && typeof entry === "object" ? (entry as { payload?: SeriesRow }).payload : undefined;
+                    const raw = payload?.chainlink_mid_price;
+                    const rawLabel = raw === null || raw === undefined
+                      ? ""
+                      : ` (raw ${raw.toLocaleString(undefined, { maximumFractionDigits: 6 })})`;
                     return [
-                      `${value.toLocaleString(undefined, { maximumFractionDigits: 6 })}${rawLabel}`,
+                      `${numericValue.toLocaleString(undefined, { maximumFractionDigits: 6 })}${rawLabel}`,
                       "chainlink_mid_price"
                     ];
                   }}
