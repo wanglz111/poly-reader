@@ -5,6 +5,11 @@ type RedisValue = string | null;
 const DEFAULT_TIMEOUT_MS = 1200;
 
 function getRedisConfig() {
+  const backend = process.env.STATE_BACKEND?.trim();
+  if (backend && backend !== "redis") {
+    return null;
+  }
+
   const host = process.env.REDIS_HOST?.trim();
   if (!host) {
     return null;
@@ -12,13 +17,23 @@ function getRedisConfig() {
   const port = Number(process.env.REDIS_PORT ?? "6379");
   const password = process.env.REDIS_PASSWORD ?? "";
   const db = Number(process.env.REDIS_DB ?? "0");
+  const connectTimeoutMs = Number(process.env.REDIS_CONNECT_TIMEOUT_SEC ?? "1.2") * 1000;
+  const ioTimeoutMs = Number(process.env.REDIS_IO_TIMEOUT_SEC ?? "1.2") * 1000;
   if (!Number.isFinite(port) || port <= 0) {
     return null;
   }
   if (!Number.isFinite(db) || db < 0) {
     return null;
   }
-  return { host, port, password, db };
+  return {
+    host,
+    port,
+    password,
+    db,
+    connectTimeoutMs:
+      Number.isFinite(connectTimeoutMs) && connectTimeoutMs > 0 ? connectTimeoutMs : DEFAULT_TIMEOUT_MS,
+    ioTimeoutMs: Number.isFinite(ioTimeoutMs) && ioTimeoutMs > 0 ? ioTimeoutMs : DEFAULT_TIMEOUT_MS
+  };
 }
 
 function encodeCommand(args: string[]): Buffer {
@@ -79,7 +94,11 @@ async function sendRedisCommands(commands: string[][]): Promise<RedisValue[]> {
   queue.push(...commands);
 
   return new Promise((resolve, reject) => {
-    const socket = net.createConnection({ host: cfg.host, port: cfg.port });
+    const socket = net.createConnection({
+      host: cfg.host,
+      port: cfg.port,
+      timeout: cfg.ioTimeoutMs
+    });
     const chunks: Buffer[] = [];
     let done = false;
     let timer: NodeJS.Timeout | null = null;
@@ -118,7 +137,7 @@ async function sendRedisCommands(commands: string[][]): Promise<RedisValue[]> {
 
     timer = setTimeout(() => {
       finish(new Error("redis timeout"));
-    }, DEFAULT_TIMEOUT_MS);
+    }, Math.max(cfg.connectTimeoutMs, cfg.ioTimeoutMs));
 
     socket.on("connect", () => {
       for (const command of queue) {
@@ -133,6 +152,7 @@ async function sendRedisCommands(commands: string[][]): Promise<RedisValue[]> {
     socket.on("end", () => finish());
     socket.on("close", () => finish());
     socket.on("error", (err) => finish(err));
+    socket.on("timeout", () => finish(new Error("redis socket timeout")));
   });
 }
 
