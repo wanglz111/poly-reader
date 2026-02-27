@@ -46,6 +46,10 @@ function getPool(): Pool {
   }
 
   const ssl = process.env.MYSQL_SSL === "true" ? {} : undefined;
+  const connectTimeout = Number(process.env.MYSQL_CONNECT_TIMEOUT_SEC ?? "5") * 1000;
+  const readTimeout = Number(process.env.MYSQL_READ_TIMEOUT_SEC ?? "5") * 1000;
+  const writeTimeout = Number(process.env.MYSQL_WRITE_TIMEOUT_SEC ?? "5") * 1000;
+  const networkTimeout = Math.max(connectTimeout, readTimeout, writeTimeout);
 
   global.__polyReaderPool = mysql.createPool({
     uri,
@@ -53,7 +57,10 @@ function getPool(): Pool {
     connectionLimit: 8,
     queueLimit: 0,
     timezone: "Z",
-    ssl
+    ssl,
+    connectTimeout: Number.isFinite(networkTimeout) && networkTimeout > 0 ? networkTimeout : 5000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0
   });
 
   return global.__polyReaderPool;
