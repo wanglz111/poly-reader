@@ -7,6 +7,7 @@ import {
   getPriceSeriesByHour,
   getPriceSeriesByWindow
 } from "@/lib/db";
+import { triggerCacheSyncBestEffort } from "@/lib/cache-sync";
 import { cacheGetJson, cacheSetJson } from "@/lib/redis-cache";
 import {
   parseUnixTs,
@@ -33,6 +34,7 @@ type PricePayload = {
 
 export async function GET(req: NextRequest) {
   try {
+    triggerCacheSyncBestEffort();
     const nowTs = Math.floor(Date.now() / 1000);
     const token = requireToken(req.nextUrl.searchParams.get("token"));
     const timezone = requireTimezone(req.nextUrl.searchParams.get("timezone"));

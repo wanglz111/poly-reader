@@ -1,12 +1,14 @@
 import { NextResponse } from "next/server";
 
 import { listTokens } from "@/lib/db";
+import { triggerCacheSyncBestEffort } from "@/lib/cache-sync";
 import { cacheGetJson, cacheSetJson } from "@/lib/redis-cache";
 
 export const dynamic = "force-dynamic";
 
 export async function GET() {
   try {
+    triggerCacheSyncBestEffort();
     const cacheKey = "poly-reader:tokens:v2";
     const cached = await cacheGetJson<string[]>(cacheKey);
     if (cached) {

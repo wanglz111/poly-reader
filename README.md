@@ -50,3 +50,4 @@ ipconfig getifaddr en0
 - 可选 Redis 缓存（`STATE_BACKEND=redis` + `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DB`），用于降低 MySQL 查询频率
 - 支持 MySQL/Redis 网络超时配置（`MYSQL_*_TIMEOUT_SEC`、`REDIS_*_TIMEOUT_SEC`），避免慢查询长期阻塞请求
 - 历史数据会写入更长 TTL 的 Redis 键（按小时 markets 全量缓存、price-series 多别名键），尽量让历史查询直接命中 Redis
+- 提供 `/api/cache-sync` 手动预热接口（支持 `CACHE_SYNC_SECRET` 鉴权）；同时在任意读请求到达时会后台尽力增量同步最新闭盘数据到 Redis

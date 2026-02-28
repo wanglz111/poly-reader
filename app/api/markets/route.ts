@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { listHourBuckets, listMarketsByHour } from "@/lib/db";
+import { triggerCacheSyncBestEffort } from "@/lib/cache-sync";
 import { cacheGetJson, cacheSetJson } from "@/lib/redis-cache";
 import { parseUnixTs, requireToken } from "@/lib/validate";
 import type { HourBucket, MarketOption } from "@/types/api";
@@ -11,6 +12,7 @@ const IMMUTABLE_TTL_SECONDS = 86400 * 30;
 
 export async function GET(req: NextRequest) {
   try {
+    triggerCacheSyncBestEffort();
     const token = requireToken(req.nextUrl.searchParams.get("token"));
     const hourStartTs = parseUnixTs(req.nextUrl.searchParams.get("hour_start_ts"), "hour_start_ts");
     const nowTs = Math.floor(Date.now() / 1000);
