@@ -46,6 +46,10 @@ function getPool(): Pool {
   }
 
   const ssl = process.env.MYSQL_SSL === "true" ? {} : undefined;
+  const connectTimeout = Number(process.env.MYSQL_CONNECT_TIMEOUT_SEC ?? "5") * 1000;
+  const readTimeout = Number(process.env.MYSQL_READ_TIMEOUT_SEC ?? "5") * 1000;
+  const writeTimeout = Number(process.env.MYSQL_WRITE_TIMEOUT_SEC ?? "5") * 1000;
+  const networkTimeout = Math.max(connectTimeout, readTimeout, writeTimeout);
 
   global.__polyReaderPool = mysql.createPool({
     uri,
@@ -53,7 +57,10 @@ function getPool(): Pool {
     connectionLimit: 8,
     queueLimit: 0,
     timezone: "Z",
-    ssl
+    ssl,
+    connectTimeout: Number.isFinite(networkTimeout) && networkTimeout > 0 ? networkTimeout : 5000,
+    enableKeepAlive: true,
+    keepAliveInitialDelay: 0
   });
 
   return global.__polyReaderPool;
@@ -262,4 +269,55 @@ export async function getMarketSlugByWindow(
     return null;
   }
   return String(rows[0].market_slug);
+}
+
+export type ClosedMarketRef = {
+  token: string;
+  market_slug: string;
+  market_start_ts: number;
+  market_end_ts: number;
+};
+
+export async function listClosedMarketsAfter(
+  cursor: { market_end_ts: number; token: string; market_slug: string },
+  limit = 200
+): Promise<ClosedMarketRef[]> {
+  const pool = getPool();
+  const nowTs = Math.floor(Date.now() / 1000);
+  const [rows] = await pool.query<RowDataPacket[]>(
+    `
+      SELECT
+        symbol_norm,
+        market_slug,
+        market_start_ts,
+        market_end_ts
+      FROM ${TABLE}
+      WHERE market_end_ts <= ?
+        AND (
+          market_end_ts > ?
+          OR (market_end_ts = ? AND symbol_norm > ?)
+          OR (market_end_ts = ? AND symbol_norm = ? AND market_slug > ?)
+        )
+      GROUP BY symbol_norm, market_slug, market_start_ts, market_end_ts
+      ORDER BY market_end_ts ASC, symbol_norm ASC, market_slug ASC
+      LIMIT ?
+    `,
+    [
+      nowTs,
+      cursor.market_end_ts,
+      cursor.market_end_ts,
+      cursor.token,
+      cursor.market_end_ts,
+      cursor.token,
+      cursor.market_slug,
+      limit
+    ]
+  );
+
+  return rows.map((row) => ({
+    token: String(row.symbol_norm),
+    market_slug: String(row.market_slug),
+    market_start_ts: Number(row.market_start_ts),
+    market_end_ts: Number(row.market_end_ts)
+  }));
 }

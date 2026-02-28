@@ -7,6 +7,7 @@ import {
   getPriceSeriesByHour,
   getPriceSeriesByWindow
 } from "@/lib/db";
+import { triggerCacheSyncBestEffort } from "@/lib/cache-sync";
 import { cacheGetJson, cacheSetJson } from "@/lib/redis-cache";
 import {
   parseUnixTs,
@@ -18,8 +19,22 @@ import type { PricePoint } from "@/types/api";
 
 export const dynamic = "force-dynamic";
 
+const IMMUTABLE_TTL_SECONDS = 86400 * 90;
+
+type PricePayload = {
+  meta: {
+    token: string;
+    market_slug: string;
+    market_start_ts: number;
+    market_end_ts: number;
+    timezone: string;
+  };
+  series: PricePoint[];
+};
+
 export async function GET(req: NextRequest) {
   try {
+    triggerCacheSyncBestEffort();
     const nowTs = Math.floor(Date.now() / 1000);
     const token = requireToken(req.nextUrl.searchParams.get("token"));
     const timezone = requireTimezone(req.nextUrl.searchParams.get("timezone"));
@@ -45,21 +60,13 @@ export async function GET(req: NextRequest) {
         : marketStartTs !== null && marketEndTs !== null
           ? `window:${marketStartTs}:${marketEndTs}`
           : "invalid";
-    const cacheKey = `poly-reader:price-series:v2:${token}:${timezone}:${cacheDiscriminator}`;
-    const cached = await cacheGetJson<{
-      meta: {
-        token: string;
-        market_slug: string;
-        market_start_ts: number;
-        market_end_ts: number;
-        timezone: string;
-      };
-      series: PricePoint[];
-    }>(cacheKey);
+    const cacheKey = `poly-reader:price-series:v4:${token}:${timezone}:${cacheDiscriminator}`;
+    const cached = await cacheGetJson<PricePayload>(cacheKey);
     if (cached) {
       return NextResponse.json(cached, {
         headers: {
-          "X-Cache": "HIT"
+          "X-Cache": "HIT",
+          "X-Cache-TTL": String(IMMUTABLE_TTL_SECONDS)
         }
       });
     }
@@ -116,7 +123,7 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "market is not closed yet" }, { status: 400 });
     }
 
-    const payload = {
+    const payload: PricePayload = {
       meta: {
         token,
         market_slug: marketSlug,
@@ -126,10 +133,22 @@ export async function GET(req: NextRequest) {
       },
       series
     };
-    await cacheSetJson(cacheKey, payload, 15);
+
+    const aliasKeys = new Set<string>([
+      cacheKey,
+      `poly-reader:price-series:v4:${token}:${timezone}:slug:${marketSlug}`,
+      `poly-reader:price-series:v4:${token}:${timezone}:window:${marketWindow.market_start_ts}:${marketWindow.market_end_ts}`
+    ]);
+    if (marketWindow.market_end_ts - marketWindow.market_start_ts === 3600) {
+      aliasKeys.add(`poly-reader:price-series:v4:${token}:${timezone}:hour:${marketWindow.market_start_ts}`);
+    }
+
+    await Promise.all(Array.from(aliasKeys, (key) => cacheSetJson(key, payload, IMMUTABLE_TTL_SECONDS)));
     return NextResponse.json(payload, {
       headers: {
-        "X-Cache": "MISS"
+        "X-Cache": "MISS",
+        "X-Cache-TTL": String(IMMUTABLE_TTL_SECONDS),
+        "X-Cache-Keys-Written": String(aliasKeys.size)
       }
     });
   } catch (error) {
