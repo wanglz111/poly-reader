@@ -18,7 +18,11 @@ const STATE_TTL_SECONDS = 86400 * 365;
 const STATE_KEY = "poly-reader:sync:v1:state";
 
 type SyncState = {
-  last_market_end_ts: number;
+  cursor: {
+    market_end_ts: number;
+    token: string;
+    market_slug: string;
+  };
   updated_at: number;
 };
 
@@ -60,23 +64,23 @@ async function syncAll(req: NextRequest) {
   const batchSize = Number.isFinite(batchSizeRaw) ? Math.max(20, Math.min(1000, Math.floor(batchSizeRaw))) : 200;
 
   const state = (await cacheGetJson<SyncState>(STATE_KEY)) ?? {
-    last_market_end_ts: 0,
+    cursor: { market_end_ts: 0, token: "", market_slug: "" },
     updated_at: 0
   };
 
-  const refs = await listClosedMarketsAfter(state.last_market_end_ts, batchSize);
+  const refs = await listClosedMarketsAfter(state.cursor, batchSize);
   if (refs.length === 0) {
     return NextResponse.json({
       ok: true,
       processed_markets: 0,
       warmed_hours: 0,
-      cursor: state.last_market_end_ts
+      cursor: state.cursor
     });
   }
 
   const touchedHours = new Set<string>();
   let writtenPriceKeys = 0;
-  let maxMarketEndTs = state.last_market_end_ts;
+  let nextCursor = { ...state.cursor };
 
   for (const ref of refs) {
     const series = await getPriceSeriesByWindow(ref.token, ref.market_start_ts, ref.market_end_ts);
@@ -110,9 +114,11 @@ async function syncAll(req: NextRequest) {
       writtenPriceKeys += keys.length;
     }
 
-    if (ref.market_end_ts > maxMarketEndTs) {
-      maxMarketEndTs = ref.market_end_ts;
-    }
+    nextCursor = {
+      market_end_ts: ref.market_end_ts,
+      token: ref.token,
+      market_slug: ref.market_slug
+    };
   }
 
   for (const tokenHour of touchedHours) {
@@ -130,7 +136,7 @@ async function syncAll(req: NextRequest) {
   await cacheSetJson(
     STATE_KEY,
     {
-      last_market_end_ts: maxMarketEndTs,
+      cursor: nextCursor,
       updated_at: Math.floor(Date.now() / 1000)
     },
     STATE_TTL_SECONDS
@@ -141,7 +147,7 @@ async function syncAll(req: NextRequest) {
     processed_markets: refs.length,
     written_price_keys: writtenPriceKeys,
     warmed_hours: touchedHours.size,
-    cursor: maxMarketEndTs
+    cursor: nextCursor
   });
 }
 

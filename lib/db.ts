@@ -279,7 +279,7 @@ export type ClosedMarketRef = {
 };
 
 export async function listClosedMarketsAfter(
-  afterMarketEndTs: number,
+  cursor: { market_end_ts: number; token: string; market_slug: string },
   limit = 200
 ): Promise<ClosedMarketRef[]> {
   const pool = getPool();
@@ -293,12 +293,25 @@ export async function listClosedMarketsAfter(
         market_end_ts
       FROM ${TABLE}
       WHERE market_end_ts <= ?
-        AND market_end_ts > ?
+        AND (
+          market_end_ts > ?
+          OR (market_end_ts = ? AND symbol_norm > ?)
+          OR (market_end_ts = ? AND symbol_norm = ? AND market_slug > ?)
+        )
       GROUP BY symbol_norm, market_slug, market_start_ts, market_end_ts
-      ORDER BY market_end_ts ASC
+      ORDER BY market_end_ts ASC, symbol_norm ASC, market_slug ASC
       LIMIT ?
     `,
-    [nowTs, afterMarketEndTs, limit]
+    [
+      nowTs,
+      cursor.market_end_ts,
+      cursor.market_end_ts,
+      cursor.token,
+      cursor.market_end_ts,
+      cursor.token,
+      cursor.market_slug,
+      limit
+    ]
   );
 
   return rows.map((row) => ({
