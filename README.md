@@ -45,7 +45,8 @@ ipconfig getifaddr en0
 
 ## 说明
 
-- 表名固定：`v_chainlink_polymarket_join`
+- 仅读取按日分表：`polymarket_prices_YYYYMMDD` / `chainlink_live_reports_YYYYMMDD`
+- 分表切天时区由 `MYSQL_TABLE_DATE_TZ` 控制，默认 `+08:00`
 - 使用 MySQL 连接池单例，适配 Vercel Serverless 场景
 - 可选 Redis 缓存（`STATE_BACKEND=redis` + `REDIS_HOST/REDIS_PORT/REDIS_PASSWORD/REDIS_DB`），用于降低 MySQL 查询频率
 - 支持 MySQL/Redis 网络超时配置（`MYSQL_*_TIMEOUT_SEC`、`REDIS_*_TIMEOUT_SEC`），避免慢查询长期阻塞请求
