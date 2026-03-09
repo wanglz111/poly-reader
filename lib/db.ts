@@ -156,6 +156,18 @@ function getTableCache() {
   return global.__polyReaderTableCache;
 }
 
+function coerceTableName(row: RowDataPacket): string | null {
+  const direct =
+    row.table_name ??
+    row.TABLE_NAME ??
+    row.Table_name;
+  const fallback = direct ?? Object.values(row).find((value) => typeof value === "string");
+  if (typeof fallback !== "string") {
+    return null;
+  }
+  return SAFE_IDENTIFIER_RE.test(fallback) ? fallback : null;
+}
+
 function emptyChainlinkFragment(): SqlFragment {
   return {
     params: [],
@@ -223,7 +235,9 @@ async function listAvailableTables(baseTable: string): Promise<string[]> {
     [cfg.databaseName, `^${baseTable}_[0-9]{8}$`]
   );
 
-  const tables = rows.map((row) => String(row.table_name));
+  const tables = rows
+    .map(coerceTableName)
+    .filter((table): table is string => table !== null);
   cache.set(cacheKey, {
     expiresAt: now + TABLE_CACHE_TTL_MS,
     tables
